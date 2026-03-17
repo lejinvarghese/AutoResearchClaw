@@ -5015,38 +5015,91 @@ def _write_paper_sections(
         if input_draft_todos is None:
             input_draft_todos = []
         todo_summary = "\n".join(f"- {todo}" for todo in input_draft_todos[:15])  # First 15 TODOs
+
+        # Count sections and extract key framework elements
+        import re
+        sections = re.findall(r'^#{1,2}\s+(.+)$', input_draft_content, re.MULTILINE)
+        axioms = re.findall(r'Axiom \d+', input_draft_content)
+
         extension_instruction = f"""
-## EXTENSION MODE: You are EXTENDING an existing research draft, NOT writing from scratch.
+╔══════════════════════════════════════════════════════════════════════════════╗
+║ 🚨 CRITICAL INSTRUCTION: DRAFT EXTENSION MODE - NOT NEW PAPER GENERATION 🚨 ║
+╚══════════════════════════════════════════════════════════════════════════════╝
 
-### EXISTING DRAFT (READ CAREFULLY):
-```markdown
-{input_draft_content[:15000]}
-{'... [draft truncated, full version has ' + str(len(input_draft_content)) + ' chars]' if len(input_draft_content) > 15000 else ''}
-```
+⚠️  WARNING: The author has an EXISTING DRAFT with {len(sections)} sections, {len(axioms)} axioms, and substantial mathematical framework.
 
-### YOUR TASK:
-1. **PRESERVE** all existing complete sections - do NOT rewrite them
-2. **EXPAND** sections marked with TODO or that are incomplete
-3. **ADD** missing citations from the literature search results
-4. **FILL** gaps identified in the TODOs below
-5. **MAINTAIN** the author's voice, mathematical rigor, and structure
-6. **VALIDATE** claims with experiment results where applicable
+⚠️  YOUR TASK IS TO **EXTEND** THE EXISTING DRAFT, NOT REPLACE IT.
 
-### PRIORITY TODOs TO ADDRESS:
-{todo_summary if todo_summary else '(No explicit TODOs found - focus on expanding incomplete sections)'}
+═══════════════════════════════════════════════════════════════════════════════
 
-### OUTPUT FORMAT:
-- Return ONLY the sections you're extending/adding
-- Use the same markdown heading levels as the original
-- Maintain mathematical notation consistency (same LaTeX style)
-- Add proper citations using [cite_key] format from literature results
+📋 STRICT RULES - VIOLATING THESE WILL RESULT IN REJECTION:
+
+1. ❌ DO NOT generate a new paper from scratch
+2. ❌ DO NOT rewrite existing complete sections
+3. ❌ DO NOT change the author's mathematical notation or framework
+4. ❌ DO NOT modify or remove existing axioms, definitions, or theorems
+5. ✅ DO add citations to fill TODO markers
+6. ✅ DO expand incomplete sections with relevant research
+7. ✅ DO maintain the exact same writing voice and rigor level
+8. ✅ DO preserve all mathematical equations and notation
+
+═══════════════════════════════════════════════════════════════════════════════
+
+📖 EXISTING DRAFT STRUCTURE (PRESERVE THIS):
+
+{chr(10).join(f"  - Section: {s}" for s in sections[:10])}
+{'  ... and ' + str(len(sections) - 10) + ' more sections' if len(sections) > 10 else ''}
+
+═══════════════════════════════════════════════════════════════════════════════
+
+🎯 SPECIFIC TASKS - FOCUS ON THESE {len(input_draft_todos)} TODOS:
+
+{todo_summary if todo_summary else '(No explicit TODOs - check for incomplete sections)'}
+
+═══════════════════════════════════════════════════════════════════════════════
+
+📝 DRAFT EXCERPT (First 2000 chars):
+
+{input_draft_content[:2000]}
+
+{'...[DRAFT CONTINUES - Total: ' + str(len(input_draft_content)) + ' characters]' if len(input_draft_content) > 2000 else ''}
+
+═══════════════════════════════════════════════════════════════════════════════
+
+✏️  OUTPUT REQUIREMENTS:
+
+1. Start with: "# EXTENDED SECTIONS - Building on Existing Draft"
+2. For each TODO you address, use format:
+   ## Addressing TODO [Line X]: [Topic]
+   [Your additions with citations]
+
+3. Maintain exact mathematical notation from original (e.g., same variable names)
+4. Add citations using [cite_key] from literature search results
+5. Match the author's academic writing style (formal, rigorous, theoretical)
+
+═══════════════════════════════════════════════════════════════════════════════
+
+🔬 LITERATURE SEARCH RESULTS TO INTEGRATE:
+- Use the papers found in the literature search to fill citation TODOs
+- Focus on highly-cited, foundational papers from relevant domains
+
+═══════════════════════════════════════════════════════════════════════════════
 
 """
         logger.info("🔧 EXTENSION MODE ACTIVATED - extending existing draft")
+        logger.info(f"   Draft: {len(input_draft_content)} chars, {len(sections)} sections, {len(input_draft_todos)} TODOs")
 
     # --- Call 1: Title + Abstract + Introduction + Related Work ---
+    if extension_mode:
+        task_verb = "🔧 EXTEND THE EXISTING DRAFT by adding to"
+        task_note = "\n⚠️  REMINDER: You are NOT writing a new paper. You are ADDING citations and filling TODOs in an existing draft.\n\n"
+    else:
+        task_verb = "Write"
+        task_note = ""
+
     call1_user = (
         f"{extension_instruction}"
+        f"{task_note}"
         f"{preamble}\n\n"
         f"{topic_constraint}"
         f"{citation_instruction}\n\n"
@@ -5055,7 +5108,7 @@ def _write_paper_sections(
         f"{narrative_writing_rules}\n"
         f"{anti_hedging_rules}\n"
         f"{anti_repetition_rules}\n\n"
-        f"{'EXTEND' if extension_mode else 'Write'} the following sections of a NeurIPS/ICML-quality paper in markdown. "
+        f"{task_verb} the following sections of a NeurIPS/ICML-quality paper in markdown. "
         "Follow the LENGTH REQUIREMENTS strictly:\n\n"
         "1. **Title** (HARD RULE: MUST be 14 words or fewer. Create a catchy method name "
         "first, then build the title: 'MethodName: Subtitle'. If your title exceeds 14 words, "
