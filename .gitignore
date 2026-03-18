@@ -77,3 +77,6 @@ cli_pause
 
 .venv_arc/
 /config.arc.yaml
+
+# Paper-specific files (drafts, analyses, private work)
+papers/
