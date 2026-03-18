@@ -5360,8 +5360,12 @@ def _write_paper_sections(
     citation_instruction: str,
     outline: str,
     model_name: str = "",
+    input_draft_content: str = "",
+    input_draft_todos: list | None = None,
 ) -> str:
     """Write a conference-grade paper in 3 sequential LLM calls.
+
+    If input_draft_content is provided, extends an existing draft rather than writing from scratch.
 
     Call 1: Title + Abstract + Introduction + Related Work
     Call 2: Method + Experiments (with full experiment data)
@@ -5417,8 +5421,98 @@ def _write_paper_sections(
     except (KeyError, Exception):  # noqa: BLE001
         anti_repetition_rules = ""
 
+    # EXTENSION MODE: Modify prompts if extending existing draft
+    extension_mode = bool(input_draft_content)
+    extension_instruction = ""
+    if extension_mode:
+        if input_draft_todos is None:
+            input_draft_todos = []
+        todo_summary = "\n".join(f"- {todo}" for todo in input_draft_todos[:15])  # First 15 TODOs
+
+        # Count sections and extract key framework elements
+        import re
+        sections = re.findall(r'^#{1,2}\s+(.+)$', input_draft_content, re.MULTILINE)
+        axioms = re.findall(r'Axiom \d+', input_draft_content)
+
+        extension_instruction = f"""
+╔══════════════════════════════════════════════════════════════════════════════╗
+║ 🚨 CRITICAL INSTRUCTION: DRAFT EXTENSION MODE - NOT NEW PAPER GENERATION 🚨 ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+⚠️  WARNING: The author has an EXISTING DRAFT with {len(sections)} sections, {len(axioms)} axioms, and substantial mathematical framework.
+
+⚠️  YOUR TASK IS TO **EXTEND** THE EXISTING DRAFT, NOT REPLACE IT.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+📋 STRICT RULES - VIOLATING THESE WILL RESULT IN REJECTION:
+
+1. ❌ DO NOT generate a new paper from scratch
+2. ❌ DO NOT rewrite existing complete sections
+3. ❌ DO NOT change the author's mathematical notation or framework
+4. ❌ DO NOT modify or remove existing axioms, definitions, or theorems
+5. ✅ DO add citations to fill TODO markers
+6. ✅ DO expand incomplete sections with relevant research
+7. ✅ DO maintain the exact same writing voice and rigor level
+8. ✅ DO preserve all mathematical equations and notation
+
+═══════════════════════════════════════════════════════════════════════════════
+
+📖 EXISTING DRAFT STRUCTURE (PRESERVE THIS):
+
+{chr(10).join(f"  - Section: {s}" for s in sections[:10])}
+{'  ... and ' + str(len(sections) - 10) + ' more sections' if len(sections) > 10 else ''}
+
+═══════════════════════════════════════════════════════════════════════════════
+
+🎯 SPECIFIC TASKS - FOCUS ON THESE {len(input_draft_todos)} TODOS:
+
+{todo_summary if todo_summary else '(No explicit TODOs - check for incomplete sections)'}
+
+═══════════════════════════════════════════════════════════════════════════════
+
+📝 DRAFT EXCERPT (First 2000 chars):
+
+{input_draft_content[:2000]}
+
+{'...[DRAFT CONTINUES - Total: ' + str(len(input_draft_content)) + ' characters]' if len(input_draft_content) > 2000 else ''}
+
+═══════════════════════════════════════════════════════════════════════════════
+
+✏️  OUTPUT REQUIREMENTS:
+
+1. Start with: "# EXTENDED SECTIONS - Building on Existing Draft"
+2. For each TODO you address, use format:
+   ## Addressing TODO [Line X]: [Topic]
+   [Your additions with citations]
+
+3. Maintain exact mathematical notation from original (e.g., same variable names)
+4. Add citations using [cite_key] from literature search results
+5. Match the author's academic writing style (formal, rigorous, theoretical)
+
+═══════════════════════════════════════════════════════════════════════════════
+
+🔬 LITERATURE SEARCH RESULTS TO INTEGRATE:
+- Use the papers found in the literature search to fill citation TODOs
+- Focus on highly-cited, foundational papers from relevant domains
+
+═══════════════════════════════════════════════════════════════════════════════
+
+"""
+        logger.info("🔧 EXTENSION MODE ACTIVATED - extending existing draft")
+        logger.info(f"   Draft: {len(input_draft_content)} chars, {len(sections)} sections, {len(input_draft_todos)} TODOs")
+
     # --- Call 1: Title + Abstract + Introduction + Related Work ---
+    if extension_mode:
+        task_verb = "🔧 EXTEND THE EXISTING DRAFT by adding to"
+        task_note = "\n⚠️  REMINDER: You are NOT writing a new paper. You are ADDING citations and filling TODOs in an existing draft.\n\n"
+    else:
+        task_verb = "Write"
+        task_note = ""
+
     call1_user = (
+        f"{extension_instruction}"
+        f"{task_note}"
         f"{preamble}\n\n"
         f"{topic_constraint}"
         f"{citation_instruction}\n\n"
@@ -5427,7 +5521,7 @@ def _write_paper_sections(
         f"{narrative_writing_rules}\n"
         f"{anti_hedging_rules}\n"
         f"{anti_repetition_rules}\n\n"
-        "Write the following sections of a NeurIPS/ICML-quality paper in markdown. "
+        f"{task_verb} the following sections of a NeurIPS/ICML-quality paper in markdown. "
         "Follow the LENGTH REQUIREMENTS strictly:\n\n"
         "1. **Title** (HARD RULE: MUST be 14 words or fewer. Create a catchy method name "
         "first, then build the title: 'MethodName: Subtitle'. If your title exceeds 14 words, "
@@ -5468,6 +5562,7 @@ def _write_paper_sections(
 
     # --- Call 2: Method + Experiments ---
     call2_user = (
+        f"{extension_instruction if not extension_mode else ''}"  # Only show once in Call 1
         f"{preamble}\n\n"
         f"{topic_constraint}"
         f"{exp_metrics_instruction}\n\n"
@@ -6223,6 +6318,24 @@ def _execute_paper_draft(
     llm: LLMClient | None = None,
     prompts: PromptManager | None = None,
 ) -> StageResult:
+    # EXTENSION: Read input draft if provided (for extending existing papers)
+    input_draft_content = ""
+    input_draft_todos = []
+    if config.research.input_draft:
+        from pathlib import Path
+        draft_path = Path(config.research.input_draft)
+        if draft_path.exists():
+            input_draft_content = draft_path.read_text(encoding="utf-8")
+            logger.info(f"✓ Loaded input draft from {draft_path} ({len(input_draft_content)} chars)")
+            # Extract TODO sections from draft
+            import re
+            todos = re.findall(r'>\s*\*\*TODO\*\*:([^\n]+)', input_draft_content)
+            todos.extend(re.findall(r'-\s*\[\s*\]\s*([^\n]+)', input_draft_content))
+            input_draft_todos = [t.strip() for t in todos if t.strip()]
+            logger.info(f"✓ Extracted {len(input_draft_todos)} TODOs from draft")
+        else:
+            logger.warning(f"Input draft not found: {draft_path}")
+
     outline = _read_prior_artifact(run_dir, "outline.md") or ""
     preamble = _build_context_preamble(
         config,
@@ -6845,6 +6958,8 @@ def _execute_paper_draft(
             citation_instruction=citation_instruction,
             outline=outline,
             model_name=config.llm.primary_model,
+            input_draft_content=input_draft_content,
+            input_draft_todos=input_draft_todos,
         )
 
         # R7: Strip LLM-generated References section — it often fabricates arXiv IDs.

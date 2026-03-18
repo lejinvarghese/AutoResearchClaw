@@ -62,6 +62,7 @@ class ResearchConfig:
     domains: tuple[str, ...] = ()
     daily_paper_count: int = 0
     quality_threshold: float = 0.0
+    input_draft: str = ""  # Path to existing draft paper to extend
 
 
 @dataclass(frozen=True)
@@ -350,6 +351,7 @@ class RCConfig:
                 domains=tuple(research.get("domains") or ()),
                 daily_paper_count=int(research.get("daily_paper_count", 0)),
                 quality_threshold=float(research.get("quality_threshold", 0.0)),
+                input_draft=research.get("input_draft", ""),
             ),
             runtime=RuntimeConfig(
                 timezone=runtime["timezone"],
